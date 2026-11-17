@@ -46,6 +46,7 @@ EQ_NAME = {1: "(1) keduanya positif", 2: "(2) keduanya negatif", 3: "(3) tanda b
 
 def set_data(df: pd.DataFrame):
     st.session_state.data = normalize_frame(df)
+    st.session_state.current = st.session_state.data
     st.session_state.pop("editor", None)
     st.session_state.pop("two_dates", None)
 
@@ -108,16 +109,19 @@ with tab_input:
         api_key = d2.text_input("API key NVD (opsional)", type="password",
                                 help="Tanpa API key, NVD membatasi 5 permintaan per 30 detik sehingga ada jeda "
                                      "sekitar 6 detik per CVE.")
-        n_cve = len({str(c).strip().upper() for c in st.session_state.data["CVE"] if is_real_cve(c)})
+        # pakai tabel yang sedang diedit (Langkah 3), bukan data terakhir yang dimuat
+        working = st.session_state.get("current", st.session_state.data)
+        n_cve = len({str(c).strip().upper() for c in working["CVE"] if is_real_cve(c)})
         est = n_cve * (1 if api_key else 6)
-        if st.button(f"Ambil CVSS dan EPSS untuk {n_cve} CVE (perkiraan {est} detik)", type="primary"):
+        st.caption(f"{n_cve} kode CVE unik akan diambil skornya; perkiraan waktu {est} detik.")
+        if st.button("Ambil CVSS dan EPSS", type="primary", key="fetch_btn"):
             bar = st.progress(0.0, text="Mengambil EPSS dari FIRST")
 
             def progress(i, n, cve):
                 bar.progress(i / max(n, 1), text=f"Mengambil CVSS dari NVD: {cve} ({i + 1} dari {n})")
 
             try:
-                df_new, log = fill_scores(st.session_state.data, str(epss_date) if use_date else None,
+                df_new, log = fill_scores(working, str(epss_date) if use_date else None,
                                           api_key or None, progress)
                 bar.empty()
                 set_data(df_new)
