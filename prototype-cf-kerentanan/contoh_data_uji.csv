@@ -1,0 +1,10 @@
+ID,Server,CVE,CVSS,EPSS,Kepentingan,Keyakinan kepentingan,Keterpaparan,Keyakinan keterpaparan,Sumber CVSS,Tanggal EPSS,Versi EPSS
+A,srv-web-01,CVE-ILUSTRASI-A,9.8,0.94,Tinggi,Pasti,Open,Pasti,Ilustrasi paper,,
+B,srv-dev-02,CVE-ILUSTRASI-B,5.3,0.004,Rendah,Pasti,Small,Pasti,Ilustrasi paper,,
+C,srv-app-03,CVE-ILUSTRASI-C,9.8,0.004,Sedang,Pasti,Open,Kemungkinan besar,Ilustrasi paper,,
+D,srv-api-04,CVE-UJI-D,7.0,0.1,Sedang,Pasti,Controlled,Pasti,Uji batas (High & EPSS tepat 0.1),,
+E,srv-api-05,CVE-UJI-E,6.9,0.0999,Sedang,Pasti,Controlled,Pasti,Uji batas (Medium & EPSS di bawah 0.1),,
+F,srv-db-06,CVE-UJI-F,3.9,0.5,Tinggi,Pasti,Small,Pasti,Uji CVSS Low tapi EPSS tinggi,,
+G,srv-mail-07,CVE-UJI-G,8.8,0.02,Tinggi,Tidak tahu,Open,Mungkin,Uji ambang 0.2 (Tidak tahu),,
+H,srv-dns-08,CVE-UJI-H,9.0,0.05,Rendah,Pasti,Tidak diketahui,Tidak tahu,Uji keterpaparan tidak diketahui -> Open,,
+I,srv-api-09,CVE-UJI-I,7.4,0.15,Sedang,Hampir pasti,Controlled,Pasti,Uji nilai seri dengan D,,
