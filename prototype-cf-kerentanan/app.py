@@ -28,6 +28,7 @@ st.markdown("""
              color: #1F4E79; margin-bottom: 0.1rem;}
 .note {color: #4A5565; font-size: 0.9rem;}
 div[data-testid="stMetricValue"] {font-size: 1.6rem;}
+div[data-testid="stExpander"] h4 {font-size: 1.05rem; margin-top: 0.6rem;}
 button[data-baseweb="tab"] p {font-size: 0.95rem; font-weight: 600;}
 </style>
 """, unsafe_allow_html=True)
@@ -71,9 +72,9 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-tab_input, tab_hasil, tab_rinci, tab_epss, tab_aturan, tab_verif = st.tabs(
+tab_input, tab_hasil, tab_rinci, tab_epss, tab_aturan, tab_verif, tab_panduan = st.tabs(
     ["Data Masukan", "Hasil Prioritas", "Rincian Perhitungan", "Analisis EPSS Dua Tanggal",
-     "Basis Aturan", "Verifikasi Manual"])
+     "Basis Aturan", "Verifikasi Manual", "Panduan"])
 
 # ---------- Tab: input ----------
 with tab_input:
@@ -366,3 +367,12 @@ with tab_verif:
     v2.metric("Sesuai", f"{passed} dari {len(rows)}")
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Hasil manual Kasus C ditulis 0,5733 di paper (dibulatkan); nilai tepatnya 0,573333.")
+
+# ---------- Tab: panduan ----------
+with tab_panduan:
+    st.markdown("Penjelasan setiap bagian aplikasi. Klik judul untuk membuka atau menutup bagian.")
+    sections = (HERE / "panduan.md").read_text(encoding="utf-8").split("\n## ")
+    for i, sec in enumerate(sections):
+        title, _, body = sec.removeprefix("## ").partition("\n")
+        with st.expander(title.strip(), expanded=(i == 0)):
+            st.markdown(body)
