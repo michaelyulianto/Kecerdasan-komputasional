@@ -300,7 +300,11 @@ with tab_epss:
             n1.metric("Pasangan dibandingkan", len(t))
             n2.metric("Berubah posisi", moved)
             n3.metric("Melewati ambang 0,1", crossed)
-            st.dataframe(t, width="stretch", hide_index=True)
+            fmt = {c: st.column_config.NumberColumn(format="%.5f") for c in t.columns if c.startswith("EPSS ")}
+            fmt.update({c: st.column_config.NumberColumn(format="%.4f") for c in t.columns if c.startswith("CF ")})
+            st.dataframe(t, width="stretch", hide_index=True, column_config=fmt)
+            st.caption("CF hanya berubah jika EPSS berpindah kategori (melewati ambang 0,1), karena aturan membaca "
+                       "kategori, bukan angka mentah. Perubahan EPSS di dalam kategori yang sama tidak mengubah CF.")
             st.caption("Perubahan posisi positif berarti naik peringkat pada tanggal kedua. "
                        "“R5 → R4” berarti EPSS naik melewati ambang 0,1; “R4 → R5” sebaliknya.")
             st.download_button("Unduh analisis dua tanggal (CSV)", t.to_csv(index=False).encode("utf-8"),
