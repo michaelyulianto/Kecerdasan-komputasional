@@ -49,6 +49,7 @@ def set_data(df: pd.DataFrame):
     st.session_state.current = st.session_state.data
     st.session_state.pop("editor", None)
     st.session_state.pop("two_dates", None)
+    st.session_state.pop("fetch_log", None)
 
 
 def step(label: str, title: str, text: str | None = None):
