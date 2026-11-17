@@ -4,156 +4,131 @@ Jalankan:  streamlit run app.py
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
+from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 from cf_engine import (CF_THRESHOLD, CONFIDENCE_TERMS, HYPOTHESIS, KEPENTINGAN, KETERPAPARAN, RULES, TERM_SCALE,
-                       _fmt, competition_rank, evaluate)
+                       _fmt, evaluate)
+from fetch_scores import is_real_cve
+from pipeline import COLUMNS, epss_two_dates, evaluate_frame, fill_scores, normalize_frame, ranking_table
 
+HERE = Path(__file__).parent
 st.set_page_config(page_title="Prioritas Kerentanan CF", page_icon="🛡️", layout="wide")
 
 TERMS = list(CONFIDENCE_TERMS.keys())
-COLUMNS = ["ID", "Server", "CVE", "CVSS", "EPSS", "Kepentingan", "Keyakinan kepentingan",
-           "Keterpaparan", "Keyakinan keterpaparan", "Sumber CVSS", "Tanggal EPSS", "Versi EPSS"]
-
-# Kasus contoh = Tabel IV pada paper (nilai ilustratif)
-EXAMPLES = [
-    ["A", "srv-web-01", "CVE-ILUSTRASI-A", 9.8, 0.94, "Tinggi", "Pasti", "Open", "Pasti", "Ilustrasi", "", ""],
-    ["B", "srv-dev-02", "CVE-ILUSTRASI-B", 5.3, 0.004, "Rendah", "Pasti", "Small", "Pasti", "Ilustrasi", "", ""],
-    ["C", "srv-app-03", "CVE-ILUSTRASI-C", 9.8, 0.004, "Sedang", "Pasti", "Open", "Kemungkinan besar", "Ilustrasi", "", ""],
-]
+# Kasus contoh = Tabel IV pada paper (nilai ilustratif, bukan CVE asli)
+EXAMPLES = pd.DataFrame([
+    ["A", "srv-web-01", "CVE-ILUSTRASI-A", 9.8, 0.94, "Tinggi", "Pasti", "Open", "Pasti"],
+    ["B", "srv-dev-02", "CVE-ILUSTRASI-B", 5.3, 0.004, "Rendah", "Pasti", "Small", "Pasti"],
+    ["C", "srv-app-03", "CVE-ILUSTRASI-C", 9.8, 0.004, "Sedang", "Pasti", "Open", "Kemungkinan besar"],
+], columns=["ID", "Server", "CVE", "CVSS", "EPSS", "Kepentingan", "Keyakinan kepentingan",
+            "Keterpaparan", "Keyakinan keterpaparan"])
 MANUAL = {"A": 0.9808, "B": -0.784, "C": 0.573333}  # hasil manual pada paper (Bagian III.C)
 
 
-def init_state():
-    if "data" not in st.session_state:
-        st.session_state.data = pd.DataFrame(EXAMPLES, columns=COLUMNS)
+def set_data(df: pd.DataFrame):
+    st.session_state.data = normalize_frame(df)
+    st.session_state.pop("editor", None)
 
 
-def evaluate_frame(df: pd.DataFrame):
-    results, errors = [], []
-    for i, row in df.iterrows():
-        rid = str(row.get("ID") or f"#{i + 1}")
-        try:
-            if pd.isna(row["CVSS"]) or pd.isna(row["EPSS"]):
-                raise ValueError("CVSS atau EPSS kosong")
-            res = evaluate(rid, float(row["CVSS"]), float(row["EPSS"]), row["Kepentingan"],
-                           row["Keyakinan kepentingan"], row["Keterpaparan"], row["Keyakinan keterpaparan"])
-            results.append((row, res))
-        except (ValueError, KeyError, TypeError) as e:
-            errors.append(f"Baris {rid}: {e} — dilewati.")
-    return results, errors
-
-
-def ranking_table(results) -> pd.DataFrame:
-    rows = [{
-        "ID": r.case_id, "Server": row["Server"], "CVE": row["CVE"],
-        "CVSS": float(row["CVSS"]), "EPSS": float(row["EPSS"]),
-        "Aturan aktif": ", ".join(f.rule.code for f in r.fired) or "—",
-        "CF akhir": r.cf_final,
-    } for row, r in results]
-    t = pd.DataFrame(rows)
-    if t.empty:
-        return t
-    t["Urutan CF"] = competition_rank(t["CF akhir"].tolist())
-    t["Urutan CVSS"] = competition_rank(t["CVSS"].tolist())
-    t["Urutan EPSS"] = competition_rank(t["EPSS"].tolist())
-    t["Interpretasi"] = t["CF akhir"].apply(
-        lambda v: "Mendukung prioritas tinggi" if v > 0 else ("Melemahkan prioritas tinggi" if v < 0 else "Netral"))
-    return t.sort_values(["Urutan CF", "ID"]).reset_index(drop=True)
-
+if "data" not in st.session_state:
+    set_data(pd.read_csv(HERE / "skenario_contoh.csv"))
 
 # ======================= UI =======================
-init_state()
 st.title("🛡️ Prioritisasi Kerentanan Server — Certainty Factor")
 st.caption(f"Hipotesis H: “{HYPOTHESIS}.” Nilai CF akhir adalah skor dukungan berbasis aturan, "
            "**bukan** probabilitas eksploitasi (probabilitas tetap dari EPSS).")
 
-tab_input, tab_hasil, tab_rinci, tab_aturan, tab_verif = st.tabs(
-    ["📥 Data Masukan", "📊 Hasil Prioritas", "🔍 Rincian Perhitungan", "📚 Basis Aturan", "✅ Verifikasi Manual"])
+tab_input, tab_hasil, tab_rinci, tab_epss, tab_aturan, tab_verif = st.tabs(
+    ["📥 Data Masukan", "📊 Hasil Prioritas", "🔍 Rincian Perhitungan", "📅 EPSS Dua Tanggal",
+     "📚 Basis Aturan", "✅ Verifikasi Manual"])
 
 # ---------- Tab: input ----------
 with tab_input:
-    st.subheader("Pasangan CVE–server")
-    st.write("Edit langsung di tabel. Tambah baris lewat ikon ➕ di bawah tabel. "
-             "Kolom keyakinan = CF(E) kondisi server (Tabel II). “Tidak tahu” tidak mengaktifkan aturan (ambang 0,2).")
+    st.markdown("#### Langkah 1 — Siapkan skenario pasangan CVE–server")
+    st.write("Skenario berisi kode CVE **asli** dan kondisi server **simulasi** (kepentingan & keterpaparan). "
+             "Kolom CVSS dan EPSS boleh kosong karena diisi pada Langkah 2.")
+    c1, c2, c3 = st.columns(3)
+    c1.download_button("⬇️ Unduh template skenario (CSV)", (HERE / "skenario_contoh.csv").read_bytes(),
+                       file_name="skenario_contoh.csv", mime="text/csv")
+    if c2.button("Pakai skenario contoh (CVE asli)"):
+        set_data(pd.read_csv(HERE / "skenario_contoh.csv"))
+        st.rerun()
+    if c3.button("Pakai contoh ilustrasi paper (Kasus A, B, C)"):
+        set_data(EXAMPLES)
+        st.rerun()
+    up = st.file_uploader("Atau unggah CSV skenario kalian (kolom wajib: ID, Server, CVE, Kepentingan, "
+                          "Keyakinan kepentingan, Keterpaparan, Keyakinan keterpaparan)", type="csv")
+    if up is not None and st.button("Muat CSV"):
+        try:
+            set_data(pd.read_csv(up))
+            st.rerun()
+        except ValueError as e:
+            st.error(str(e))
+
+    st.markdown("#### Langkah 2 — Ambil skor asli dari NVD (CVSS v3.1) dan FIRST (EPSS)")
+    st.write("Skor diambil untuk semua baris yang kodenya berformat CVE asli. CVE tanpa CVSS v3.1 atau tanpa "
+             "EPSS ditandai dan dikeluarkan (batasan paper). Tanggal skor dan tanggal pengambilan ikut dicatat.")
+    d1, d2 = st.columns(2)
+    use_date = d1.checkbox("Gunakan EPSS dari tanggal tertentu (default: skor terbaru)")
+    epss_date = d1.date_input("Tanggal EPSS", value=date.today() - timedelta(days=1),
+                              max_value=date.today(), disabled=not use_date)
+    api_key = d2.text_input("API key NVD (opsional — tanpa key, jeda ±6 detik per CVE)", type="password")
+    n_cve = len({str(c).strip().upper() for c in st.session_state.data["CVE"] if is_real_cve(c)})
+    if st.button(f"🌐 Ambil CVSS & EPSS untuk semua baris (±{n_cve * (1 if api_key else 6)} detik)", type="primary"):
+        bar = st.progress(0.0, text="Mengambil EPSS dari FIRST…")
+
+        def progress(i, n, cve):
+            bar.progress(i / max(n, 1), text=f"Mengambil CVSS dari NVD: {cve} ({i + 1}/{n})")
+
+        try:
+            df_new, log = fill_scores(st.session_state.data, str(epss_date) if use_date else None,
+                                      api_key or None, progress)
+            bar.empty()
+            set_data(df_new)
+            st.session_state.fetch_log = log
+            st.rerun()
+        except Exception as e:
+            bar.empty()
+            st.error(f"Gagal menghubungi NVD/FIRST: {e}")
+    for line in st.session_state.get("fetch_log", []):
+        st.info(line)
+
+    st.markdown("#### Langkah 3 — Periksa / edit data")
+    st.write("Tabel bisa diedit langsung (➕ di bawah tabel untuk menambah baris). Kolom keyakinan = CF(E) kondisi "
+             "server (Tabel II); “Tidak tahu” tidak mengaktifkan aturan (ambang 0,2).")
     edited = st.data_editor(
         st.session_state.data, num_rows="dynamic", width="stretch", key="editor",
         column_config={
             "CVSS": st.column_config.NumberColumn("CVSS v3.1", min_value=0.0, max_value=10.0, step=0.1, format="%.1f"),
-            "EPSS": st.column_config.NumberColumn("EPSS", min_value=0.0, max_value=1.0, step=0.00001, format="%.5f"),
+            "EPSS": st.column_config.NumberColumn("EPSS", min_value=0.0, max_value=1.0, format="%.5f"),
             "Kepentingan": st.column_config.SelectboxColumn(options=KEPENTINGAN, required=True, default="Sedang"),
             "Keyakinan kepentingan": st.column_config.SelectboxColumn(options=TERMS, required=True, default="Pasti"),
             "Keterpaparan": st.column_config.SelectboxColumn(options=KETERPAPARAN, required=True, default="Controlled"),
             "Keyakinan keterpaparan": st.column_config.SelectboxColumn(options=TERMS, required=True, default="Pasti"),
         },
     )
-    st.session_state.current = edited  # jangan timpa data dasar editor (hindari reset edit)
+    st.session_state.current = edited
+    st.download_button("⬇️ Simpan snapshot data bertanggal (CSV)", edited.to_csv(index=False).encode("utf-8"),
+                       file_name=f"snapshot_data_{date.today()}.csv", mime="text/csv",
+                       help="Simpan file ini sebagai data uji resmi supaya pengujian bisa diulang (Bab IV.A).")
 
-    c1, c2 = st.columns(2)
-    if c1.button("↺ Kembalikan ke contoh paper (Kasus A, B, C)"):
-        st.session_state.data = pd.DataFrame(EXAMPLES, columns=COLUMNS)
-        st.session_state.pop("editor", None)
-        st.rerun()
-    c2.download_button("⬇️ Unduh data masukan (CSV)", edited.to_csv(index=False).encode("utf-8"),
-                       file_name="data_masukan.csv", mime="text/csv")
-
-    up = st.file_uploader("Atau unggah CSV dengan kolom yang sama", type="csv")
-    if up is not None and st.button("Muat CSV"):
-        df_up = pd.read_csv(up)
-        missing = [c for c in COLUMNS[:9] if c not in df_up.columns]
-        if missing:
-            st.error(f"Kolom hilang: {', '.join(missing)}")
-        else:
-            for c in COLUMNS[9:]:
-                df_up[c] = df_up.get(c, "")
-            st.session_state.data = df_up[COLUMNS]
-            st.session_state.pop("editor", None)
-            st.rerun()
-
-    st.divider()
-    st.subheader("Tambah dari NVD & FIRST")
-    st.write("Mengambil **CVSS v3.1 Base Score** dari NVD dan **EPSS** dari FIRST secara otomatis. "
-             "Tanggal dan versi model EPSS ikut dicatat. CVE tanpa CVSS v3.1 ditolak (sesuai batasan paper).")
-    with st.form("fetch_form", clear_on_submit=False):
-        f1, f2, f3 = st.columns(3)
-        cve_in = f1.text_input("Kode CVE", placeholder="CVE-2021-44228")
-        server_in = f2.text_input("Nama server", placeholder="srv-web-01")
-        id_in = f3.text_input("ID kasus", placeholder="K1")
-        g1, g2, g3, g4 = st.columns(4)
-        kep = g1.selectbox("Kepentingan", KEPENTINGAN)
-        kep_t = g2.selectbox("Keyakinan kepentingan", TERMS)
-        exp = g3.selectbox("Keterpaparan", KETERPAPARAN)
-        exp_t = g4.selectbox("Keyakinan keterpaparan", TERMS)
-        submitted = st.form_submit_button("Ambil skor & tambahkan")
-    if submitted:
-        from fetch_scores import fetch_cvss31, fetch_epss
-        try:
-            with st.spinner("Menghubungi NVD dan FIRST…"):
-                cv = fetch_cvss31(cve_in)
-                ep = fetch_epss(cve_in)
-            new = pd.DataFrame([[id_in or f"K{len(st.session_state.current) + 1}", server_in, cve_in.strip().upper(),
-                                 cv["cvss"], ep["epss"], kep, kep_t, exp, exp_t, cv["sumber_cvss"],
-                                 ep["tanggal_epss"], ep["versi_epss"]]], columns=COLUMNS)
-            st.session_state.data = pd.concat([st.session_state.current, new], ignore_index=True)
-            st.session_state.pop("editor", None)
-            st.success(f"{cve_in.upper()}: CVSS {cv['cvss']} ({cv['vektor']}), EPSS {ep['epss']} "
-                       f"(tanggal {ep['tanggal_epss']}, model {ep['versi_epss']}). Diambil {date.today()}.")
-            st.rerun()
-        except Exception as e:  # jaringan/HTTP/format
-            st.error(f"Gagal mengambil skor: {e}")
-
-results, errors = evaluate_frame(st.session_state.get("current", st.session_state.data))
-for e in errors:
-    st.sidebar.warning(e)
+current = st.session_state.get("current", st.session_state.data)
+results, errors = evaluate_frame(current)
+if errors:
+    with st.sidebar:
+        st.markdown("**Baris yang dilewati**")
+        for e in errors:
+            st.warning(e)
 
 # ---------- Tab: hasil ----------
 with tab_hasil:
     table = ranking_table(results)
     if table.empty:
-        st.info("Belum ada data valid.")
+        st.info("Belum ada data valid. Isi CVSS & EPSS dulu di tab Data Masukan (Langkah 2).")
     else:
         m1, m2, m3 = st.columns(3)
         m1.metric("Pasangan CVE–server", len(table))
@@ -163,13 +138,10 @@ with tab_hasil:
             table[["Urutan CF", "ID", "Server", "CVE", "CF akhir", "Interpretasi", "Aturan aktif",
                    "CVSS", "Urutan CVSS", "EPSS", "Urutan EPSS"]],
             width="stretch", hide_index=True,
-            column_config={
-                "CF akhir": st.column_config.NumberColumn(format="%.4f"),
-                "EPSS": st.column_config.NumberColumn(format="%.5f"),
-            },
+            column_config={"CF akhir": st.column_config.NumberColumn(format="%.4f"),
+                           "EPSS": st.column_config.NumberColumn(format="%.5f")},
         )
-        st.caption("Peringkat seri berbagi nomor yang sama (1, 1, 3). Kasus dengan CF sama adalah prioritas setara; "
-                   "urutan tampilan di antaranya tidak berarti beda prioritas.")
+        st.caption("Peringkat seri berbagi nomor yang sama (1, 1, 3). Kasus dengan CF sama adalah prioritas setara.")
 
         st.subheader("Perbedaan urutan terhadap pembanding")
         diff_rows = []
@@ -179,24 +151,23 @@ with tab_hasil:
                 notes.append(f"CVSS saja: #{r['Urutan CVSS']} → CF: #{r['Urutan CF']}")
             if r["Urutan CF"] != r["Urutan EPSS"]:
                 notes.append(f"EPSS saja: #{r['Urutan EPSS']} → CF: #{r['Urutan CF']}")
-            diff_rows.append({"ID": r["ID"], "Perubahan": "; ".join(notes) or "Posisi sama",
+            diff_rows.append({"ID": r["ID"], "CVE": r["CVE"], "Server": r["Server"],
+                              "Perubahan": "; ".join(notes) or "Posisi sama",
                               "Dijelaskan oleh aturan": r["Aturan aktif"]})
         st.dataframe(pd.DataFrame(diff_rows), width="stretch", hide_index=True)
 
         out = table.copy()
         out["Tanggal proses"] = str(date.today())
         st.download_button("⬇️ Unduh hasil prioritas (CSV)", out.to_csv(index=False).encode("utf-8"),
-                           file_name="hasil_prioritas_cf.csv", mime="text/csv")
+                           file_name=f"hasil_prioritas_{date.today()}.csv", mime="text/csv")
 
 # ---------- Tab: rincian ----------
 with tab_rinci:
     if not results:
         st.info("Belum ada data valid.")
     else:
-        ids = [r.case_id for _, r in results]
-        pick = st.selectbox("Pilih kasus", ids)
-        row, res = next((row, r) for row, r in results if r.case_id == pick)
-        st.markdown(f"**{res.case_id}** — {row['CVE']} pada {row['Server']}")
+        labels = {f"{r.case_id} — {row['CVE']} @ {row['Server']}": (row, r) for row, r in results}
+        row, res = labels[st.selectbox("Pilih kasus", list(labels))]
         for w in res.warnings:
             st.warning(w)
 
@@ -212,8 +183,6 @@ with tab_rinci:
                 "CF(Rule)": f"{_fmt(f.rule.cf)} ({f.rule.term})",
                 "CF(H,E)": f"{_fmt(f.cf_e)} × {_fmt(f.rule.cf)} = {_fmt(f.cf_he)}"} for f in res.fired]),
                 width="stretch", hide_index=True)
-        else:
-            st.write("Tidak ada aturan aktif.")
         for rule, why in res.not_fired:
             st.caption(f"{rule.code} premis cocok tetapi tidak aktif: {why}")
 
@@ -226,6 +195,31 @@ with tab_rinci:
         elif res.fired:
             st.write("Hanya satu aturan aktif, tidak perlu kombinasi.")
         st.success(f"CF akhir = {res.cf_final:.6f}")
+
+# ---------- Tab: EPSS dua tanggal ----------
+with tab_epss:
+    st.write("Analisis tambahan (Bab IV.B): EPSS diambil dari **dua tanggal berbeda**, sedangkan CVSS, kondisi "
+             "server, dan aturan tetap sama. Perubahan urutan karenanya dapat dikaitkan dengan perubahan EPSS. "
+             "Nilai EPSS kedua tanggal tidak digabungkan.")
+    e1, e2 = st.columns(2)
+    date1 = e1.date_input("Tanggal 1", value=date.today() - timedelta(days=90), max_value=date.today())
+    date2 = e2.date_input("Tanggal 2", value=date.today() - timedelta(days=1), max_value=date.today())
+    if st.button("🌐 Bandingkan EPSS dua tanggal"):
+        try:
+            with st.spinner("Mengambil EPSS historis dari FIRST…"):
+                st.session_state.two_dates = epss_two_dates(current, str(date1), str(date2))
+        except Exception as e:
+            st.error(f"Gagal menghubungi FIRST: {e}")
+    if "two_dates" in st.session_state:
+        t, log = st.session_state.two_dates
+        for line in log:
+            st.warning(line)
+        if not t.empty:
+            st.dataframe(t, width="stretch", hide_index=True)
+            st.caption("Perubahan posisi positif = naik peringkat pada tanggal 2. "
+                       "“R5 → R4” berarti EPSS melewati ambang 0,1.")
+            st.download_button("⬇️ Unduh analisis dua tanggal (CSV)", t.to_csv(index=False).encode("utf-8"),
+                               file_name="analisis_epss_dua_tanggal.csv", mime="text/csv")
 
 # ---------- Tab: basis aturan ----------
 with tab_aturan:
@@ -254,10 +248,11 @@ with tab_verif:
     st.write("Membandingkan hasil sistem dengan perhitungan manual pada paper (Bagian III.C). "
              "Kriteria: selisih absolut ≤ 1 × 10⁻⁶.")
     rows = []
-    for ex in EXAMPLES:
-        r = evaluate(ex[0], ex[3], ex[4], ex[5], ex[6], ex[7], ex[8])
-        diff = abs(r.cf_final - MANUAL[ex[0]])
-        rows.append({"Kasus": ex[0], "Manual (paper)": MANUAL[ex[0]], "Sistem": round(r.cf_final, 6),
+    for _, ex in EXAMPLES.iterrows():
+        r = evaluate(ex["ID"], ex["CVSS"], ex["EPSS"], ex["Kepentingan"], ex["Keyakinan kepentingan"],
+                     ex["Keterpaparan"], ex["Keyakinan keterpaparan"])
+        diff = abs(r.cf_final - MANUAL[ex["ID"]])
+        rows.append({"Kasus": ex["ID"], "Manual (paper)": MANUAL[ex["ID"]], "Sistem": round(r.cf_final, 6),
                      "Selisih": f"{diff:.1e}", "Status": "✅ Sesuai" if diff <= 1e-6 else "❌ Tidak sesuai"})
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     st.caption("Nilai manual Kasus C ditulis 0,5733 di paper (dibulatkan); nilai tepatnya 0,573333…")

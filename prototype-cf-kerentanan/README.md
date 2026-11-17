@@ -1,6 +1,6 @@
 # Prototipe Prioritisasi Kerentanan Server — Certainty Factor
 
-Prototipe Streamlit untuk paper *Penerapan Certainty Factor untuk Prioritisasi Kerentanan Server Berdasarkan CVSS, EPSS, dan Kondisi Server* (Kelompok 6). Prototipe ini mengikuti rancangan pada Bab III paper revisi.
+Prototipe website untuk paper *Penerapan Certainty Factor untuk Prioritisasi Kerentanan Server Berdasarkan CVSS, EPSS, dan Kondisi Server* (Kelompok 6). Isinya mengikuti Bab III–V paper revisi.
 
 ## Menjalankan
 
@@ -9,34 +9,36 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Setelah itu buka http://localhost:8501.
-
-Untuk menjalankan uji perhitungan:
+Uji otomatis (tanpa internet, memakai server tiruan NVD/FIRST):
 
 ```bash
 python -m pytest -q
 ```
 
-## Isi aplikasi
+## Sumber data
 
-| Tab | Fungsi |
-|---|---|
-| Data Masukan | Mengedit pasangan CVE–server langsung di tabel atau lewat unggah/unduh CSV. Bisa juga mengambil CVSS v3.1 dari NVD dan EPSS dari FIRST secara otomatis; tanggal dan versi model EPSS ikut dicatat. |
-| Hasil Prioritas | Urutan berdasarkan CF akhir, dibandingkan dengan urutan CVSS saja dan EPSS saja (nilai seri berbagi peringkat), plus penjelasan perubahan posisi dan unduhan CSV. |
-| Rincian Perhitungan | Untuk tiap kasus: kategori evidence (Tabel I), aturan aktif dan CF(H,E), aturan yang tidak aktif karena ambang 0,2, serta setiap langkah kombinasi EMYCIN beserta nomor persamaannya. |
-| Basis Aturan | Tabel I, II, dan III dari paper. |
-| Verifikasi Manual | Mencocokkan hasil sistem dengan perhitungan manual Kasus A/B/C di paper (toleransi 1×10⁻⁶). |
+| Data | Sumber | Sifat |
+|---|---|---|
+| CVSS v3.1 Base Score | NVD CVE API 2.0 (`services.nvd.nist.gov/rest/json/cves/2.0`) | Asli; jarang berubah |
+| EPSS | FIRST EPSS API (`api.first.org/data/v1/epss`, dokumentasi: api.first.org/epss) | Asli; diperbarui **setiap hari**, bisa diambil per tanggal |
+| Kepentingan & keterpaparan server | Skenario buatan kelompok (`skenario_contoh.csv`) | Simulasi, sesuai batasan paper |
+
+## Alur pemakaian
+
+1. **Data Masukan → Langkah 1:** muat skenario (template atau unggah CSV). CVSS/EPSS boleh kosong.
+2. **Langkah 2:** klik *Ambil CVSS & EPSS*. CVE tanpa CVSS v3.1 atau tanpa EPSS ditandai di kolom *Catatan* dan dikeluarkan. Tanpa API key NVD, ada jeda sekitar 6 detik per CVE (batas NVD: 5 permintaan per 30 detik).
+3. **Langkah 3:** periksa tabel, lalu klik *Simpan snapshot data bertanggal*. File ini dipakai sebagai data uji resmi supaya pengujian bisa diulang.
+4. **Hasil Prioritas:** urutan CF dibandingkan dengan CVSS saja dan EPSS saja.
+5. **Rincian Perhitungan:** evidence, aturan aktif, dan langkah kombinasi untuk setiap kasus.
+6. **EPSS Dua Tanggal:** analisis tambahan Bab IV.B.
+7. **Verifikasi Manual:** hasil sistem dibandingkan dengan hitungan manual di paper.
 
 ## Struktur
 
-- `cf_engine.py`: penilaian evidence, basis aturan R1–R9, ambang premis 0,2, fungsi kombinasi EMYCIN, dan peringkat. Tidak bergantung pada Streamlit.
-- `fetch_scores.py`: klien API NVD (CVSS v3.1) dan FIRST (EPSS).
+- `cf_engine.py`: penilaian evidence, aturan R1–R9, ambang 0,2, dan kombinasi EMYCIN.
+- `fetch_scores.py`: klien API NVD dan FIRST.
+- `pipeline.py`: isi skor, evaluasi, peringkat, dan analisis dua tanggal.
 - `app.py`: antarmuka Streamlit.
-- `tests/test_cf_engine.py`: uji contoh paper, batas kategori, ambang, kasus tepi, dan kebebasan urutan kombinasi.
-
-## Catatan
-
-- Kasus A, B, dan C memakai nilai **ilustratif** dari paper. Untuk pengujian, ganti dengan CVE asli lewat fitur "Tambah dari NVD & FIRST".
-- API NVD tanpa API key dibatasi jumlah permintaannya. Kalau gagal, tunggu sebentar lalu coba lagi.
-- Nilai CF akhir adalah skor dukungan berbasis aturan, **bukan** probabilitas eksploitasi.
-- Deploy gratis bisa lewat Streamlit Community Cloud: push folder ini ke GitHub, lalu pilih `app.py` sebagai entry point.
+- `skenario_contoh.csv`: skenario dengan CVE asli dan kondisi server simulasi.
+- `contoh_data_uji.csv`: kasus uji logika (nilai buatan, bukan CVE asli).
+- `tests/`: unit test dan server tiruan API (`tests/mock_api.py`). Skor dari server tiruan **bukan** data asli.
