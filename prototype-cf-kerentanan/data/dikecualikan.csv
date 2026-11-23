@@ -1,0 +1,4 @@
+cve,epss_2026-11-22,alasan
+CVE-2025-21333,0.10066,NVD tidak memiliki skor CVSS v3.1 Primary (hanya skor CNA Microsoft 7.8)
+CVE-2026-42018,0.09983,NVD tidak memiliki skor CVSS v3.1 Primary (hanya skor CNA JFrog 7.5)
+CVE-2025-55754,,NVD tidak memiliki skor CVSS v3.1 Primary (hanya skor CNA 9.6)

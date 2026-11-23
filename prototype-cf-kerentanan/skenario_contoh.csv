@@ -1,13 +1,16 @@
-ID,Server,CVE,Kepentingan,Keyakinan kepentingan,Keterpaparan,Keyakinan keterpaparan
-K01,srv-web-publik,CVE-2021-44228,Tinggi,Pasti,Open,Pasti
-K02,srv-log-internal,CVE-2021-44228,Rendah,Pasti,Small,Pasti
-K03,srv-web-publik,CVE-2023-44487,Tinggi,Pasti,Open,Pasti
-K04,srv-web-publik,CVE-2021-41773,Tinggi,Pasti,Open,Pasti
-K05,srv-file-kantor,CVE-2017-0144,Sedang,Pasti,Controlled,Pasti
-K06,srv-remote-admin,CVE-2019-0708,Sedang,Pasti,Controlled,Kemungkinan besar
-K07,srv-app-java,CVE-2022-22965,Tinggi,Hampir pasti,Controlled,Pasti
-K08,srv-mail,CVE-2016-2183,Sedang,Pasti,Open,Pasti
-K09,srv-dev,CVE-2023-48795,Rendah,Pasti,Small,Pasti
-K10,srv-dev,CVE-2024-3094,Rendah,Pasti,Tidak diketahui,Tidak tahu
-K11,srv-vpn,CVE-2018-13379,Tinggi,Pasti,Open,Pasti
-K12,srv-web-publik,CVE-2014-0160,Tinggi,Tidak tahu,Open,Pasti
+ID,Server,CVE,CVSS,EPSS,Keterpaparan,Sumber CVSS,Tanggal EPSS,Versi EPSS,Diambil,Catatan
+K01,WEB-01,CVE-2021-44228,10.0,0.99999,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K02,VPN-01,CVE-2024-21762,9.8,0.84589,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K03,VPN-02,CVE-2025-6543,9.8,0.09576,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K04,APP-01,CVE-2023-40266,9.8,0.00704,Controlled,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K05,APP-01,CVE-2014-0160,7.5,0.99999,Controlled,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K06,GW-01,CVE-2026-3040,7.2,0.10015,Controlled,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K07,GW-02,CVE-2026-41039,7.5,0.00271,Small,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K08,DB-01,CVE-2016-5195,7.0,0.83524,Small,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K09,DB-01,CVE-2026-56132,6.9,0.00159,Small,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K10,APP-02,CVE-2021-21973,5.3,0.88012,Controlled,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K11,VPN-01,CVE-2020-3580,6.1,0.85575,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K12,APP-02,CVE-2023-20867,3.9,0.13638,Controlled,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K13,WEB-02,CVE-2024-55550,2.7,0.38155,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K14,DB-01,CVE-2022-3624,3.3,0.00268,Small,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper
+K15,WEB-01,CVE-2016-5195,7.0,0.83524,Open,NVD (nvd@nist.gov),2026-11-22,v5 (disimpulkan dari tanggal),2026-11-23,Snapshot data uji paper

@@ -10,10 +10,10 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 
-from cf_engine import (CF_THRESHOLD, CONFIDENCE_TERMS, HYPOTHESIS, KEPENTINGAN, KETERPAPARAN, RULES, TERM_SCALE,
-                       _fmt, evaluate)
+from cf_engine import CF_THRESHOLD, HYPOTHESIS, KETERPAPARAN, RULES, TERM_SCALE, _fmt, evaluate
 from fetch_scores import is_real_cve
-from pipeline import epss_two_dates, evaluate_frame, fill_scores, normalize_frame, ranking_table
+from pipeline import (compare_two_dates, epss_two_dates, evaluate_frame, fill_scores, normalize_frame,
+                      ranking_table, tie_groups)
 
 HERE = Path(__file__).parent
 st.set_page_config(page_title="Prioritisasi Kerentanan Server — CF", layout="wide")
@@ -33,15 +33,16 @@ button[data-baseweb="tab"] p {font-size: 0.95rem; font-weight: 600;}
 </style>
 """, unsafe_allow_html=True)
 
-TERMS = list(CONFIDENCE_TERMS.keys())
+DATA = HERE / "data"
 # Kasus contoh = Tabel IV pada paper (nilai ilustratif, bukan CVE asli)
 EXAMPLES = pd.DataFrame([
-    ["A", "srv-web-01", "CVE-ILUSTRASI-A", 9.8, 0.94, "Tinggi", "Pasti", "Open", "Pasti"],
-    ["B", "srv-dev-02", "CVE-ILUSTRASI-B", 5.3, 0.004, "Rendah", "Pasti", "Small", "Pasti"],
-    ["C", "srv-app-03", "CVE-ILUSTRASI-C", 9.8, 0.004, "Sedang", "Pasti", "Open", "Kemungkinan besar"],
-], columns=["ID", "Server", "CVE", "CVSS", "EPSS", "Kepentingan", "Keyakinan kepentingan",
-            "Keterpaparan", "Keyakinan keterpaparan"])
-MANUAL = {"A": 0.9808, "B": -0.784, "C": 0.573333}  # hasil manual pada paper (Bagian III.C)
+    ["A", "srv-web-01", "CVE-ILUSTRASI-A", 9.8, 0.94, "Open"],
+    ["B", "srv-dev-02", "CVE-ILUSTRASI-B", 5.3, 0.004, "Small"],
+    ["C", "srv-app-03", "CVE-ILUSTRASI-C", 9.8, 0.004, "Open"],
+], columns=["ID", "Server", "CVE", "CVSS", "EPSS", "Keterpaparan"])
+# hasil manual pada paper (Bagian III.C, Tabel V); C tepatnya 0,7333… (11/15)
+MANUAL = {"A": 0.968, "B": -0.64, "C": 11 / 15}
+MANUAL_TEXT = {"A": "0,968", "B": "−0,64", "C": "0,7333"}
 EQ_NAME = {1: "(1) keduanya positif", 2: "(2) keduanya negatif", 3: "(3) tanda berbeda"}
 
 
@@ -67,7 +68,7 @@ if "data" not in st.session_state:
 st.markdown(f"""
 <div class="app-header">
   <h1>Prioritisasi Kerentanan Server</h1>
-  <p>Certainty Factor berbasis CVSS, EPSS, dan kondisi server &nbsp;·&nbsp; Kelompok 6, Kecerdasan Komputasional</p>
+  <p>Certainty Factor berbasis CVSS, EPSS, dan keterpaparan server &nbsp;·&nbsp; Kelompok 6, Kecerdasan Komputasional</p>
   <p>Hipotesis H: <i>{HYPOTHESIS}</i>. Skor CF adalah tingkat dukungan aturan, bukan probabilitas eksploitasi.</p>
 </div>
 """, unsafe_allow_html=True)
@@ -80,10 +81,12 @@ tab_input, tab_hasil, tab_rinci, tab_epss, tab_aturan, tab_verif, tab_panduan = 
 with tab_input:
     with st.container(border=True):
         step("Langkah 1", "Siapkan skenario pasangan CVE–server",
-             "Skenario berisi kode CVE asli dan kondisi server simulasi (kepentingan dan keterpaparan). "
-             "Kolom CVSS dan EPSS boleh kosong karena diisi otomatis pada Langkah 2.")
+             "Skenario berisi kode CVE asli dan keterpaparan server simulasi (Open, Controlled, Small). "
+             "Skenario contoh adalah data uji paper: 15 pasangan CVE–server (K01–K15) dari 14 CVE pada 9 server, "
+             "dengan skor tersimpan (CVSS NVD; EPSS 22 November 2026). Pada file sendiri, kolom CVSS dan EPSS "
+             "boleh kosong karena dapat diisi otomatis pada Langkah 2.")
         c1, c2, c3 = st.columns(3)
-        if c1.button("Muat skenario contoh (CVE asli)", width="stretch"):
+        if c1.button("Muat skenario contoh (data uji paper)", width="stretch"):
             set_data(pd.read_csv(HERE / "skenario_contoh.csv"))
             st.rerun()
         if c2.button("Muat ilustrasi paper (Kasus A–C)", width="stretch"):
@@ -91,8 +94,9 @@ with tab_input:
             st.rerun()
         c3.download_button("Unduh template skenario (CSV)", (HERE / "skenario_contoh.csv").read_bytes(),
                            file_name="skenario_contoh.csv", mime="text/csv", width="stretch")
-        up = st.file_uploader("Unggah skenario sendiri. Kolom wajib: ID, Server, CVE, Kepentingan, "
-                              "Keyakinan kepentingan, Keterpaparan, Keyakinan keterpaparan.", type="csv")
+        up = st.file_uploader("Unggah skenario sendiri. Kolom wajib: ID, Server, CVE, Keterpaparan "
+                              "(Open, Controlled, Small, atau kosong/Tidak diketahui = Open). "
+                              "Kolom CVSS dan EPSS opsional.", type="csv")
         if up is not None and st.button("Muat file yang diunggah"):
             try:
                 set_data(pd.read_csv(up))
@@ -102,8 +106,10 @@ with tab_input:
 
     with st.container(border=True):
         step("Langkah 2", "Ambil skor asli dari NVD (CVSS v3.1) dan FIRST (EPSS)",
-             "Diambil untuk setiap baris berkode CVE asli. CVE tanpa CVSS v3.1 atau tanpa EPSS ditandai di kolom "
-             "Catatan dan tidak dihitung. Tanggal skor dan tanggal pengambilan dicatat.")
+             "Diambil untuk setiap baris berkode CVE asli. Hanya CVSS v3.1 Base metrik Primary yang ditetapkan "
+             "NVD sendiri (bukan CNA) yang dipakai. CVE tanpa skor tersebut atau tanpa EPSS ditandai di kolom "
+             "Catatan dan tidak dihitung. Tanggal skor dan tanggal pengambilan dicatat. Mengambil ulang akan "
+             "mengganti skor tersimpan data uji paper dengan skor terbaru.")
         d1, d2 = st.columns(2)
         use_date = d1.checkbox("Gunakan EPSS dari tanggal tertentu (bawaan: skor terbaru)")
         epss_date = d1.date_input("Tanggal EPSS", value=date.today() - timedelta(days=1),
@@ -140,22 +146,17 @@ with tab_input:
 
     with st.container(border=True):
         step("Langkah 3", "Periksa data, lalu simpan snapshot",
-             "Tabel dapat diedit langsung; tambah baris lewat baris kosong di bawah tabel. Kolom keyakinan adalah "
-             "CF(E) kondisi server (Tabel II); pilihan “Tidak tahu” tidak mengaktifkan aturan karena di bawah "
-             "ambang 0,2. Simpan snapshot sebagai data uji resmi agar pengujian dapat diulang.")
+             "Tabel dapat diedit langsung; tambah baris lewat baris kosong di bawah tabel. Semua evidence memakai "
+             "CF(E) = 1,0 karena kategorinya ditentukan secara deterministik. Simpan snapshot sebagai data uji "
+             "resmi agar pengujian dapat diulang.")
         edited = st.data_editor(
             st.session_state.data, num_rows="dynamic", width="stretch", key="editor", hide_index=True,
             column_config={
                 "CVSS": st.column_config.NumberColumn("CVSS v3.1", min_value=0.0, max_value=10.0, step=0.1,
                                                       format="%.1f"),
                 "EPSS": st.column_config.NumberColumn("EPSS", min_value=0.0, max_value=1.0, format="%.5f"),
-                "Kepentingan": st.column_config.SelectboxColumn(options=KEPENTINGAN, required=True, default="Sedang"),
-                "Keyakinan kepentingan": st.column_config.SelectboxColumn(options=TERMS, required=True,
-                                                                          default="Pasti"),
                 "Keterpaparan": st.column_config.SelectboxColumn(options=KETERPAPARAN, required=True,
-                                                                 default="Controlled"),
-                "Keyakinan keterpaparan": st.column_config.SelectboxColumn(options=TERMS, required=True,
-                                                                           default="Pasti"),
+                                                                 default="Tidak diketahui"),
                 "Catatan": st.column_config.TextColumn(width="large"),
             },
         )
@@ -183,7 +184,8 @@ with st.sidebar:
                 st.markdown(f"- {e}")
     st.divider()
     st.markdown("**Sumber data**")
-    st.markdown("- CVSS v3.1: NVD CVE API 2.0\n- EPSS: FIRST EPSS API\n- Kondisi server: skenario simulasi")
+    st.markdown("- CVSS v3.1 Base (Primary NVD): NVD CVE API 2.0\n- EPSS: FIRST EPSS API\n"
+                "- Keterpaparan server: skenario simulasi")
     st.markdown('<div class="note">Skor CF menyatakan dukungan aturan terhadap prioritas tinggi, '
                 'bukan peluang eksploitasi.</div>', unsafe_allow_html=True)
 
@@ -202,7 +204,7 @@ with tab_hasil:
 
         st.markdown("#### Urutan prioritas")
         st.dataframe(
-            table[["Urutan CF", "ID", "Server", "CVE", "CF akhir", "Interpretasi", "Aturan aktif",
+            table[["Urutan CF", "ID", "Server", "CVE", "Keterpaparan", "CF akhir", "Interpretasi", "Aturan aktif",
                    "CVSS", "Urutan CVSS", "EPSS", "Urutan EPSS"]],
             width="stretch", hide_index=True,
             column_config={
@@ -212,8 +214,23 @@ with tab_hasil:
                 "EPSS": st.column_config.NumberColumn(format="%.5f"),
             },
         )
-        st.caption("Bilah CF berskala −1 sampai 1. Nilai seri berbagi nomor urut (1, 1, 3) dan berarti prioritas "
-                   "setara. Kolom Urutan CVSS dan Urutan EPSS adalah urutan bila memakai satu skor saja.")
+        st.caption("Bilah CF berskala −1 sampai 1. Nilai seri berbagi nomor urut (peringkat kompetisi 1, 1, 3) dan "
+                   "berarti prioritas setara; di dalam kelompok setara, urutan tampil memakai EPSS mentah lalu CVSS "
+                   "mentah sebagai tie-breaker tampilan saja. Kolom Urutan CVSS dan Urutan EPSS adalah urutan bila "
+                   "memakai satu skor saja.")
+        groups = tie_groups(table)
+        if groups:
+            st.markdown("**Kelompok prioritas setara (CF sama):** " + "; ".join(
+                f"peringkat {rk} (CF {_fmt(cf)}): {', '.join(ids)}" for rk, cf, ids in groups))
+        else:
+            st.markdown("**Kelompok prioritas setara:** tidak ada.")
+
+        st.markdown("#### Grafik perbandingan peringkat")
+        chart = table.set_index("ID")[["Urutan CVSS", "Urutan EPSS", "Urutan CF"]].rename(
+            columns={"Urutan CVSS": "CVSS saja", "Urutan EPSS": "EPSS saja", "Urutan CF": "CF"})
+        st.bar_chart(chart, stack=False, horizontal=True, y_label="Peringkat (1 = prioritas tertinggi)",
+                     color=["#2a78d6", "#eb6834", "#1baf7a"])
+        st.caption("Batang lebih pendek berarti prioritas lebih tinggi. Kasus ditampilkan menurut ID.")
 
         st.markdown("#### Perbedaan terhadap pengurutan satu skor")
         diff_rows = []
@@ -280,15 +297,24 @@ with tab_rinci:
 
 # ---------- Tab: EPSS dua tanggal ----------
 with tab_epss:
-    st.markdown("Analisis tambahan sesuai Bab IV.B. EPSS diambil dari dua tanggal, sedangkan CVSS, kondisi "
-                "server, dan aturan tetap sama, sehingga perubahan urutan dapat dikaitkan dengan perubahan EPSS. "
-                "Nilai EPSS kedua tanggal tidak digabungkan.")
+    st.markdown("Analisis tambahan sesuai Bagian IV.B. EPSS dari dua tanggal dibandingkan, sedangkan CVSS, "
+                "keterpaparan server, dan aturan tetap sama, sehingga perubahan urutan dapat dikaitkan dengan "
+                "perubahan EPSS. Nilai EPSS kedua tanggal tidak digabungkan.")
     with st.container(border=True):
         e1, e2, e3 = st.columns([2, 2, 1.4])
-        date1 = e1.date_input("Tanggal pertama", value=date.today() - timedelta(days=90), max_value=date.today())
-        date2 = e2.date_input("Tanggal kedua", value=date.today() - timedelta(days=1), max_value=date.today())
+        date1 = e1.date_input("Tanggal pertama", value=date(2026, 8, 22), max_value=date.today())
+        date2 = e2.date_input("Tanggal kedua", value=date(2026, 11, 22), max_value=date.today())
         e3.markdown("<div style='height:1.75rem'></div>", unsafe_allow_html=True)
-        run = e3.button("Bandingkan", type="primary", width="stretch")
+        run = e3.button("Bandingkan (ambil dari FIRST)", type="primary", width="stretch")
+        stored = st.button("Pakai data EPSS tersimpan paper (22 Agustus vs 22 November 2026)")
+        st.caption("Data tersimpan memakai file data/epss_2026-08-22.csv dan data/epss_2026-11-22.csv "
+                   "(EPSS v5) sehingga hasil Tabel IX paper dapat diulang tanpa internet.")
+    if stored:
+        base = normalize_frame(current)
+        base = base[base["CVSS"].notna() & base["CVE"].apply(is_real_cve)]
+        load = lambda f: {r.cve: {"epss": float(r.epss)} for r in pd.read_csv(DATA / f).itertuples()}
+        st.session_state.two_dates = compare_two_dates(base, load("epss_2026-08-22.csv"),
+                                                       load("epss_2026-11-22.csv"), "2026-08-22", "2026-11-22")
     if run:
         try:
             with st.spinner("Mengambil EPSS historis dari FIRST"):
@@ -325,11 +351,10 @@ with tab_aturan:
         st.dataframe(pd.DataFrame([
             ["CVSS v3.1 Base", "Critical / High / Medium / Low", "9,0–10,0 / 7,0–8,9 / 4,0–6,9 / 0,1–3,9",
              "Skala keparahan CVSS v3.1"],
-            ["EPSS (30 hari)", "Tinggi / Rendah", "≥ 0,1 / < 0,1", "Ambang 10% yang dicontohkan FIRST"],
-            ["Kepentingan server", "Tinggi / Sedang / Rendah", "Dampak C/I/A katastrofik / serius / terbatas",
-             "Security Requirements CVSS v3.1"],
-            ["Keterpaparan", "Open / Controlled / Small", "Internet / akses dibatasi / lokal terkendali",
-             "System Exposure SSVC"],
+            ["EPSS (30 hari)", "Tinggi / Rendah", "≥ 0,1 (inklusif) / < 0,1", "Ambang 10% yang dicontohkan FIRST"],
+            ["Keterpaparan server", "Open / Controlled / Small",
+             "Internet atau jaringan luas / akses dibatasi atau dimitigasi / lokal atau sangat terkendali; "
+             "tidak diketahui → Open", "System Exposure SSVC"],
         ], columns=["Masukan", "Kategori", "Kriteria", "Sumber"]), width="stretch", hide_index=True)
     a1, a2 = st.columns([3, 2])
     with a1:
@@ -337,11 +362,11 @@ with tab_aturan:
             step("Tabel III", "Basis aturan")
             st.dataframe(pd.DataFrame([{"Kode": r.code, "Aturan": r.text, "CF(Rule)": _fmt(r.cf), "Istilah": r.term}
                                        for r in RULES]), width="stretch", hide_index=True)
-            st.caption("CVSS Medium, kepentingan Sedang, dan keterpaparan Controlled bersifat netral "
-                       "sehingga tidak memiliki aturan.")
+            st.caption("CVSS Medium dan keterpaparan Controlled bersifat netral sehingga tidak memiliki aturan. "
+                       "CF(E) = 1,0 untuk semua evidence, sehingga CF(H,E) = CF(Rule).")
     with a2:
         with st.container(border=True):
-            step("Tabel II", "Skala istilah CF (Sutojo dkk., 2011)")
+            step("Tabel II", "Skala istilah CF untuk memilih CF(Rule) (Sutojo dkk., 2011)")
             st.dataframe(pd.DataFrame([{"Istilah": t, "CF": "−0,2 s.d. 0,2" if t == "Tidak tahu" else _fmt(v)}
                                        for t, v in TERM_SCALE]), width="stretch", hide_index=True)
         with st.container(border=True):
@@ -352,21 +377,24 @@ with tab_aturan:
 
 # ---------- Tab: verifikasi ----------
 with tab_verif:
-    st.markdown("Hasil sistem dibandingkan dengan perhitungan manual pada paper (Bagian III.C). "
+    st.markdown("Hasil sistem dibandingkan dengan perhitungan manual pada paper (Bagian III.C, Tabel V). "
                 "Kriteria kesesuaian: selisih absolut tidak lebih dari 1 × 10⁻⁶.")
     rows = []
     for _, ex in EXAMPLES.iterrows():
-        r = evaluate(ex["ID"], ex["CVSS"], ex["EPSS"], ex["Kepentingan"], ex["Keyakinan kepentingan"],
-                     ex["Keterpaparan"], ex["Keyakinan keterpaparan"])
+        r = evaluate(ex["ID"], ex["CVSS"], ex["EPSS"], ex["Keterpaparan"])
         diff = abs(r.cf_final - MANUAL[ex["ID"]])
-        rows.append({"Kasus": ex["ID"], "Hasil manual (paper)": MANUAL[ex["ID"]], "Hasil sistem": round(r.cf_final, 6),
+        rows.append({"Kasus": ex["ID"], "Masukan": f"{_fmt(ex['CVSS'], 1)} / {_fmt(ex['EPSS'], 3)} / {ex['Keterpaparan']}",
+                     "Aturan aktif": ", ".join(f.rule.code for f in r.fired),
+                     "Hasil manual (paper)": MANUAL_TEXT[ex["ID"]], "Hasil sistem": round(r.cf_final, 6),
                      "Selisih": f"{diff:.1e}", "Status": "Sesuai" if diff <= 1e-6 else "Tidak sesuai"})
     passed = sum(r["Status"] == "Sesuai" for r in rows)
     v1, v2 = st.columns(2)
     v1.metric("Kasus diuji", len(rows))
     v2.metric("Sesuai", f"{passed} dari {len(rows)}")
     st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-    st.caption("Hasil manual Kasus C ditulis 0,5733 di paper (dibulatkan); nilai tepatnya 0,573333.")
+    st.caption("Hasil manual Kasus C ditulis 0,7333 di paper (dibulatkan); nilai tepatnya 11/15 = 0,733333…, "
+               "dan nilai tepat inilah yang dibandingkan. Perbandingan lengkap dengan perhitungan manual independen "
+               "(pecahan eksak) untuk 15 kasus uji dan 336 kombinasi masukan ada di tes otomatis (folder tests/).")
 
 # ---------- Tab: panduan ----------
 with tab_panduan:

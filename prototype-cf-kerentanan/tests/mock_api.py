@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 NO_V31 = {"CVE-2014-0160"}  # disimulasikan tidak punya CVSS v3.1
 NO_EPSS = {"CVE-2024-3094"}  # disimulasikan tidak punya EPSS
+CNA_ONLY = {"CVE-2099-0001"}  # disimulasikan hanya punya skor CNA (Secondary)
 
 
 def fake_cvss(cve):
@@ -34,6 +35,9 @@ class H(BaseHTTPRequestHandler):
             cve = q["cveId"][0]
             metrics = {} if cve in NO_V31 else {"cvssMetricV31": [{"source": "nvd@nist.gov", "type": "Primary",
                        "cvssData": {"baseScore": fake_cvss(cve), "vectorString": "CVSS:3.1/MOCK"}}]}
+            if cve in CNA_ONLY:
+                metrics = {"cvssMetricV31": [{"source": "cna@example.org", "type": "Secondary",
+                           "cvssData": {"baseScore": 7.5, "vectorString": "CVSS:3.1/MOCK"}}]}
             body = {"vulnerabilities": [{"cve": {"id": cve, "metrics": metrics}}]}
         else:
             d = q.get("date", ["2026-11-16"])[0]

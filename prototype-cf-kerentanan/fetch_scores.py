@@ -1,8 +1,9 @@
 """Pengambilan skor CVSS v3.1 dari NVD dan EPSS dari FIRST.
 
 Sesuai paper (Bab IV.A):
-- hanya CVSS v3.1 Base Score yang dipakai, tanpa konversi antarversi;
-- CVE tanpa CVSS v3.1 atau tanpa EPSS tidak disertakan;
+- hanya CVSS v3.1 Base Score metrik Primary dari NVD (ditetapkan NVD sendiri, bukan CNA) yang dipakai,
+  tanpa konversi antarversi;
+- CVE tanpa CVSS v3.1 Primary NVD atau tanpa EPSS tidak disertakan;
 - tanggal pengambilan data dan versi model EPSS dicatat.
 
 API yang dipakai:
@@ -39,9 +40,12 @@ def normalize_cve(cve: str) -> str:
 
 
 def epss_model_version(score_date: str) -> str:
-    """Versi model EPSS disimpulkan dari tanggal skor (v4 rilis 17 Mar 2025, v3 rilis 7 Mar 2023)."""
+    """Versi model EPSS disimpulkan dari tanggal skor menurut halaman FIRST "Get the Data":
+    v5 (v2026.06.15) sejak 15 Jun 2026, v4 (v2025.03.14) sejak 17 Mar 2025, v3 (v2023.03.01) sejak 7 Mar 2023."""
     if not score_date:
         return "-"
+    if score_date >= "2026-06-15":
+        return "v5 (disimpulkan dari tanggal)"
     if score_date >= "2025-03-17":
         return "v4 (disimpulkan dari tanggal)"
     if score_date >= "2023-03-07":
@@ -50,7 +54,7 @@ def epss_model_version(score_date: str) -> str:
 
 
 def fetch_cvss31(cve: str, api_key: str | None = None, timeout: float = 30) -> dict:
-    """Mengembalikan {'cvss', 'sumber_cvss', 'vektor'}; ValueError jika tidak ada CVSS v3.1."""
+    """Mengembalikan {'cvss', 'sumber_cvss', 'vektor'}; ValueError jika tidak ada CVSS v3.1 Primary NVD."""
     cve = normalize_cve(cve)
     headers = {"apiKey": api_key} if api_key else {}
     r = requests.get(NVD_URL, params={"cveId": cve}, headers=headers, timeout=timeout)
@@ -63,7 +67,9 @@ def fetch_cvss31(cve: str, api_key: str | None = None, timeout: float = 30) -> d
     metrics = vulns[0]["cve"].get("metrics", {}).get("cvssMetricV31", [])
     if not metrics:
         raise ValueError(f"{cve} tidak memiliki CVSS v3.1 di NVD → tidak disertakan (batasan paper)")
-    chosen = next((m for m in metrics if m.get("type") == "Primary"), metrics[0])
+    chosen = next((m for m in metrics if m.get("type") == "Primary"), None)
+    if chosen is None:
+        raise ValueError(f"{cve} tidak memiliki CVSS v3.1 Primary dari NVD (hanya skor CNA) → tidak disertakan")
     data = chosen["cvssData"]
     return {"cvss": float(data["baseScore"]), "sumber_cvss": f"NVD ({chosen.get('source', '-')})",
             "vektor": data.get("vectorString", "")}

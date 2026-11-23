@@ -1,0 +1,7 @@
+{
+  "cvss": {"sumber": "NVD API 2.0 (services.nvd.nist.gov/rest/json/cves/2.0)", "versi": "CVSS v3.1 Base Score, metrik Primary dari nvd@nist.gov", "tanggal_pengambilan": "2026-11-23"},
+  "epss": {"sumber": "FIRST EPSS API (api.first.org/data/v1/epss)", "tanggal_skor_utama": "2026-11-22", "tanggal_skor_pembanding": "2026-08-22", "versi_model": "EPSS v5 (v2026.06.15), mulai dipublikasikan 2026-06-15 menurut halaman FIRST 'Get the Data'", "tanggal_pengambilan": "2026-11-23"},
+  "populasi_epss_2026-11-22": {"jumlah_cve_berskor": 411249, "jumlah_epss_lebih_dari_0_1": 17579},
+  "keterpaparan": "Skenario simulasi kelompok (bukan data lingkungan nyata); lihat README bagian Asumsi skenario",
+  "aturan_inklusi": "CVE disertakan hanya jika memiliki skor CVSS v3.1 Primary NVD dan skor EPSS pada tanggal skor; lihat dikecualikan.csv"
+}

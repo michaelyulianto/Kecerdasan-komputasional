@@ -12,24 +12,24 @@ TOL = 1e-6  # toleransi pada paper (Bagian IV.C)
 
 
 def test_contoh_paper_kasus_a():
-    r = evaluate("A", 9.8, 0.94, "Tinggi", "Pasti", "Open", "Pasti")
-    assert [f.rule.code for f in r.fired] == ["R1", "R4", "R6", "R8"]
-    assert [round(s.result, 6) for s in r.steps] == [0.92, 0.952, 0.9808]
-    assert abs(r.cf_final - 0.9808) <= TOL
+    r = evaluate("A", 9.8, 0.94, "Open")
+    assert [f.rule.code for f in r.fired] == ["R1", "R4", "R6"]
+    assert [round(s.result, 6) for s in r.steps] == [0.92, 0.968]
+    assert abs(r.cf_final - 0.968) <= TOL
 
 
 def test_contoh_paper_kasus_b_negatif():
-    r = evaluate("B", 5.3, 0.004, "Rendah", "Pasti", "Small", "Pasti")
-    assert [f.rule.code for f in r.fired] == ["R5", "R7", "R9"]
+    r = evaluate("B", 5.3, 0.004, "Small")
+    assert [f.rule.code for f in r.fired] == ["R5", "R7"]
     assert all(s.equation == 2 for s in r.steps)
-    assert abs(r.cf_final - (-0.784)) <= TOL
+    assert abs(r.cf_final - (-0.64)) <= TOL
 
 
 def test_contoh_paper_kasus_c_bertentangan():
-    r = evaluate("C", 9.8, 0.004, "Sedang", "Pasti", "Open", "Kemungkinan besar")
-    assert [(f.rule.code, round(f.cf_he, 6)) for f in r.fired] == [("R1", 0.6), ("R5", -0.4), ("R8", 0.36)]
+    r = evaluate("C", 9.8, 0.004, "Open")
+    assert [(f.rule.code, round(f.cf_he, 6)) for f in r.fired] == [("R1", 0.6), ("R5", -0.4), ("R6", 0.6)]
     assert r.steps[0].equation == 3
-    assert abs(r.cf_final - 0.573333) <= TOL
+    assert abs(r.cf_final - 11 / 15) <= TOL
 
 
 def test_batas_kategori():
@@ -44,20 +44,21 @@ def test_batas_kategori():
         categorize_epss(1.2)
 
 
-def test_ambang_premis_tidak_tahu():
-    r = evaluate("D", 5.0, 0.05, "Tinggi", "Tidak tahu", "Controlled", "Pasti")
-    assert "R6" not in [f.rule.code for f in r.fired]
-    assert [rule.code for rule, _ in r.not_fired] == ["R6"]
+def test_cf_e_satu_dan_ambang_premis():
+    r = evaluate("D", 9.8, 0.5, "Open")
+    assert all(e.cf_e == 1.0 for e in r.evidences)
+    assert all(f.cf_he == f.rule.cf for f in r.fired) and r.not_fired == []
 
 
 def test_keterpaparan_tidak_diketahui_jadi_open():
-    r = evaluate("E", 5.0, 0.05, "Sedang", "Pasti", "Tidak diketahui", "Tidak tahu")
-    assert "R8" in [f.rule.code for f in r.fired]
+    for v in ("Tidak diketahui", "", None):
+        r = evaluate("E", 5.0, 0.05, v)
+        assert "R6" in [f.rule.code for f in r.fired]
 
 
-def test_tanpa_aturan_aktif():
-    # CVSS Medium dan EPSS ≥ 0.1 → hanya R4; tanpa kondisi server berbobot
-    r = evaluate("F", 5.0, 0.2, "Sedang", "Pasti", "Controlled", "Pasti")
+def test_satu_aturan_aktif():
+    # CVSS Medium dan Controlled netral; EPSS selalu mengaktifkan R4 atau R5
+    r = evaluate("F", 5.0, 0.2, "Controlled")
     assert [f.rule.code for f in r.fired] == ["R4"] and r.steps == []
 
 

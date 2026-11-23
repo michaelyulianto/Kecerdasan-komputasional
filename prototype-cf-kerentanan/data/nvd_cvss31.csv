@@ -1,0 +1,15 @@
+cve,nvd_primary_v31,vector,vuln_status,published,cna_v31,produk
+CVE-2021-44228,10.0,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:H/A:H,Analyzed,2021-12-10,10.0,Apache Log4j2
+CVE-2024-21762,9.8,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H,Analyzed,2024-02-09,9.8,Fortinet FortiOS (SSL VPN)
+CVE-2025-6543,9.8,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H,Analyzed,2025-06-25,,NetScaler ADC/Gateway
+CVE-2023-40266,9.8,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H,Modified,2024-02-08,9.8,Atos Unify OpenScape Xpressions WebAssistant
+CVE-2014-0160,7.5,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N,Analyzed,2014-04-07,7.5,OpenSSL (Heartbleed)
+CVE-2026-3040,7.2,CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:H/I:H/A:H,Analyzed,2026-02-23,4.7,DrayTek Vigor 300B (web management)
+CVE-2026-41039,7.5,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N,Analyzed,2026-04-21,,Quantum Networks router (web management)
+CVE-2016-5195,7.0,CVSS:3.1/AV:L/AC:H/PR:L/UI:N/S:U/C:H/I:H/A:H,Analyzed,2016-11-10,7.0,Linux kernel (Dirty COW)
+CVE-2026-56132,6.9,CVSS:3.1/AV:L/AC:H/PR:N/UI:N/S:U/C:H/I:H/A:L,Modified,2026-06-19,6.9,libexpat
+CVE-2021-21973,5.3,CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:L/I:N/A:N,Analyzed,2021-02-24,5.3,VMware vCenter Server (vSphere Client)
+CVE-2020-3580,6.1,CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N,Analyzed,2020-10-21,6.1,Cisco ASA/FTD web services
+CVE-2023-20867,3.9,CVSS:3.1/AV:L/AC:H/PR:H/UI:N/S:C/C:L/I:L/A:N,Analyzed,2023-06-13,3.9,VMware Tools
+CVE-2024-55550,2.7,CVSS:3.1/AV:N/AC:L/PR:H/UI:N/S:U/C:L/I:N/A:N,Analyzed,2024-12-10,4.4,Mitel MiCollab
+CVE-2022-3624,3.3,CVSS:3.1/AV:L/AC:L/PR:L/UI:N/S:U/C:N/I:N/A:L,Modified,2022-10-21,3.5,Linux kernel (bonding)

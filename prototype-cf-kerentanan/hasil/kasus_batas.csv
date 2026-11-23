@@ -1,0 +1,7 @@
+cvss,epss,keterpaparan,aturan,cf,manual
+6.9,0.05,Controlled,R5,-0.4,-0.4
+7.0,0.05,Controlled,R2 R5,0.0,0.0
+7.5,0.0999,Controlled,R2 R5,0.0,0.0
+7.5,0.1,Controlled,R2 R4,0.88,0.88
+9.8,0.09999,Open,R1 R5 R6,0.7333,0.7333
+9.8,0.1,Open,R1 R4 R6,0.968,0.968

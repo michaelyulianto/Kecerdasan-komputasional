@@ -1,17 +1,21 @@
 """Mesin inferensi Certainty Factor untuk prioritisasi pasangan CVE–server.
 
 Mengikuti rancangan paper (Bagian III):
-- Tabel I  : kategori penilaian evidence (CVSS v3.1, EPSS, kepentingan, keterpaparan)
-- Tabel II : skala interpretasi istilah CF (Sutojo dkk., 2011)
-- Tabel III: basis aturan R1–R9, satu premis per aturan
+- Tabel I  : kategori penilaian evidence (CVSS v3.1 Base, EPSS, keterpaparan server)
+- Tabel II : skala interpretasi istilah CF (Sutojo dkk., 2011), dipakai untuk memilih CF(Rule)
+- Tabel III: basis aturan R1–R7, satu premis per aturan
+- CF(E) = 1,0 untuk semua evidence karena kategorinya ditentukan secara deterministik
 - Ambang premis EMYCIN: aturan aktif hanya jika CF(E) > 0,2
 - Fungsi kombinasi EMYCIN untuk nilai positif, negatif, dan beda tanda
+
+Nilai CF akhir adalah skor dukungan berbasis aturan, BUKAN probabilitas eksploitasi.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
 CF_THRESHOLD = 0.2  # ambang premis EMYCIN
+CF_E = 1.0  # CF(E) seluruh evidence (Bagian III.B.2)
 HYPOTHESIS = "Pasangan CVE–server perlu ditangani dengan prioritas tinggi"
 
 # Tabel II — skala interpretasi istilah CF
@@ -20,23 +24,19 @@ TERM_SCALE = [
     ("Hampir pasti tidak", -0.8),
     ("Kemungkinan besar tidak", -0.6),
     ("Mungkin tidak", -0.4),
-    ("Tidak tahu", 0.0),  # rentang −0,2 s.d. 0,2; tidak pernah mengaktifkan aturan
+    ("Tidak tahu", 0.0),  # rentang −0,2 s.d. 0,2; setara kategori netral (tanpa aturan)
     ("Mungkin", 0.4),
     ("Kemungkinan besar", 0.6),
     ("Hampir pasti", 0.8),
     ("Pasti", 1.0),
 ]
-# Istilah keyakinan yang dapat dipilih pengguna untuk kondisi server, yaitu CF(E)
-CONFIDENCE_TERMS = {"Pasti": 1.0, "Hampir pasti": 0.8, "Kemungkinan besar": 0.6, "Mungkin": 0.4, "Tidak tahu": 0.0}
-
-KEPENTINGAN = ["Tinggi", "Sedang", "Rendah"]
 KETERPAPARAN = ["Open", "Controlled", "Small", "Tidak diketahui"]
 
 
 @dataclass(frozen=True)
 class Rule:
     code: str
-    evidence: str  # "CVSS" | "EPSS" | "Kepentingan" | "Keterpaparan"
+    evidence: str  # "CVSS" | "EPSS" | "Keterpaparan"
     category: str
     cf: float
     term: str
@@ -55,10 +55,8 @@ RULES = [
     Rule("R3", "CVSS", "Low", -0.4, "Mungkin tidak"),
     Rule("R4", "EPSS", "Tinggi", 0.8, "Hampir pasti"),
     Rule("R5", "EPSS", "Rendah", -0.4, "Mungkin tidak"),
-    Rule("R6", "Kepentingan", "Tinggi", 0.4, "Mungkin"),
-    Rule("R7", "Kepentingan", "Rendah", -0.4, "Mungkin tidak"),
-    Rule("R8", "Keterpaparan", "Open", 0.6, "Kemungkinan besar"),
-    Rule("R9", "Keterpaparan", "Small", -0.4, "Mungkin tidak"),
+    Rule("R6", "Keterpaparan", "Open", 0.6, "Kemungkinan besar"),
+    Rule("R7", "Keterpaparan", "Small", -0.4, "Mungkin tidak"),
 ]
 
 
@@ -81,6 +79,17 @@ def categorize_epss(p: float) -> str:
     if not 0.0 <= p <= 1.0:
         raise ValueError(f"EPSS harus 0–1, didapat {p}")
     return "Tinggi" if p >= 0.1 else "Rendah"
+
+
+def categorize_exposure(value) -> tuple[str, str]:
+    """SSVC System Exposure. Kosong/tidak diketahui → Open (pedoman SSVC). Mengembalikan (kategori, catatan)."""
+    v = "" if value is None else str(value).strip()
+    if v.lower() in ("", "nan", "none", "tidak diketahui", "unknown"):
+        return "Open", "Keterpaparan tidak diketahui → diasumsikan Open (pedoman SSVC)"
+    v = v.capitalize()
+    if v not in ("Open", "Controlled", "Small"):
+        raise ValueError(f"Keterpaparan tidak dikenal: {value!r} (pilihan: Open, Controlled, Small, Tidak diketahui)")
+    return v, "Skenario simulasi, kategori deterministik"
 
 
 # ---------- Fungsi kombinasi EMYCIN ----------
@@ -153,26 +162,19 @@ class Result:
     warnings: list[str] = field(default_factory=list)
 
 
-def evaluate(case_id: str, cvss: float, epss: float, kepentingan: str, kepentingan_term: str,
-             keterpaparan: str, keterpaparan_term: str) -> Result:
+def evaluate(case_id: str, cvss: float, epss: float, keterpaparan) -> Result:
     warnings: list[str] = []
     cvss_cat = categorize_cvss(float(cvss))
     if cvss_cat == "None":
-        warnings.append("CVSS 0,0 (None) tidak menyatakan kerentanan; menurut paper kasus ini tidak disertakan.")
+        raise ValueError("CVSS 0,0 (None) tidak menyatakan kerentanan dan tidak disertakan")
     epss_cat = categorize_epss(float(epss))
-
-    exp_cat, exp_note = keterpaparan, ""
-    exp_cf = CONFIDENCE_TERMS[keterpaparan_term]
-    if keterpaparan == "Tidak diketahui":
-        exp_cat, exp_cf = "Open", 1.0
-        exp_note = "Keterpaparan tidak diketahui → diasumsikan Open (pedoman SSVC)"
+    exp_cat, exp_note = categorize_exposure(keterpaparan)
+    exp_raw = "Tidak diketahui" if exp_note.startswith("Keterpaparan tidak") else exp_cat
 
     evidences = [
-        Evidence("CVSS", _fmt(float(cvss), 1), cvss_cat, 1.0, "Skor NVD, kategori deterministik"),
-        Evidence("EPSS", _fmt(float(epss), 5), epss_cat, 1.0, "Skor FIRST, kategori deterministik"),
-        Evidence("Kepentingan", kepentingan, kepentingan, CONFIDENCE_TERMS[kepentingan_term], f"Keyakinan pengguna: {kepentingan_term}"),
-        Evidence("Keterpaparan", keterpaparan, exp_cat, exp_cf,
-                 exp_note or f"Keyakinan pengguna: {keterpaparan_term}"),
+        Evidence("CVSS", _fmt(float(cvss), 1), cvss_cat, CF_E, "Skor NVD, kategori deterministik"),
+        Evidence("EPSS", _fmt(float(epss), 5), epss_cat, CF_E, "Skor FIRST, kategori deterministik"),
+        Evidence("Keterpaparan", exp_raw, exp_cat, CF_E, exp_note),
     ]
     ev_by_name = {e.name: e for e in evidences}
 
@@ -195,8 +197,6 @@ def evaluate(case_id: str, cvss: float, epss: float, kepentingan: str, kepenting
             new, eq = combine(cf, fr.cf_he)
             steps.append(Step(cf, fr.cf_he, eq, new, fr.rule.code))
             cf = new
-    else:
-        warnings.append("Tidak ada aturan aktif; CF akhir = 0 (netral).")
 
     return Result(case_id, evidences, fired, not_fired, steps, cf, warnings)
 

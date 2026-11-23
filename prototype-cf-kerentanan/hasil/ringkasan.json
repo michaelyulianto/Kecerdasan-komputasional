@@ -1,0 +1,80 @@
+{
+ "jumlah_kasus": 15,
+ "jumlah_cve_unik": 14,
+ "jumlah_server": 9,
+ "selisih_maks_vs_manual": 1.1102230246251565e-16,
+ "lulus_1e-6": true,
+ "aturan_benar": 15,
+ "persamaan_benar": 15,
+ "aktivasi_aturan": 37,
+ "langkah_kombinasi": 22,
+ "pemakaian_persamaan": {
+  "1": 12,
+  "2": 3,
+  "3": 7
+ },
+ "nilai_cf_unik": 12,
+ "kelompok_setara": [
+  [
+   1,
+   0.968,
+   [
+    "K01",
+    "K02"
+   ]
+  ],
+  [
+   5,
+   0.88,
+   [
+    "K05",
+    "K06"
+   ]
+  ],
+  [
+   8,
+   0.8,
+   [
+    "K10",
+    "K08"
+   ]
+  ]
+ ],
+ "gerak_vs_cvss": {
+  "naik": 7,
+  "turun": 5,
+  "tetap": 3
+ },
+ "gerak_vs_epss": {
+  "naik": 6,
+  "turun": 5,
+  "tetap": 4
+ },
+ "kendall_tau_b_cf_cvss": 0.2673,
+ "kendall_tau_b_cf_epss": 0.6634,
+ "dua_tanggal_kategori_berubah": [
+  {
+   "ID": "K06",
+   "EPSS 2026-08-22": 0.08777,
+   "EPSS 2026-11-22": 0.10015,
+   "CF 2026-08-22": 0.0,
+   "CF 2026-11-22": 0.88,
+   "Urutan 2026-08-22": 12,
+   "Urutan 2026-11-22": 5,
+   "Urutan EPSS saja 2026-08-22": 11,
+   "Urutan EPSS saja 2026-11-22": 10
+  },
+  {
+   "ID": "K03",
+   "EPSS 2026-08-22": 0.10094,
+   "EPSS 2026-11-22": 0.09576,
+   "CF 2026-08-22": 0.968,
+   "CF 2026-11-22": 0.73333,
+   "Urutan 2026-08-22": 1,
+   "Urutan 2026-11-22": 10,
+   "Urutan EPSS saja 2026-08-22": 10,
+   "Urutan EPSS saja 2026-11-22": 11
+  }
+ ],
+ "dua_tanggal_cf_tetap": 13
+}

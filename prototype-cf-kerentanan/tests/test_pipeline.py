@@ -23,7 +23,11 @@ def mock_server():
 
 
 def scenario():
-    return pd.read_csv(os.path.join(os.path.dirname(HERE), "skenario_contoh.csv"))
+    # skenario contoh tanpa skor tersimpan + dua baris tambahan untuk menguji pengecualian
+    df = pd.read_csv(os.path.join(os.path.dirname(HERE), "skenario_contoh.csv"))[["ID", "Server", "CVE", "Keterpaparan"]]
+    extra = pd.DataFrame([["X1", "srv-dev", "CVE-2024-3094", "Small"], ["X2", "srv-dev", "CVE-2099-0001", ""]],
+                         columns=df.columns)
+    return pd.concat([df, extra], ignore_index=True)
 
 
 def test_skenario_tanpa_skor_dilewati():
@@ -40,18 +44,22 @@ def test_fill_scores_dan_pengecualian():
     log4j = df[df["CVE"] == "CVE-2021-44228"]
     assert log4j["CVSS"].notna().all() and log4j["Tanggal EPSS"].ne("").all()
     results, errors = evaluate_frame(df)
-    assert len(results) == len(df) - 2 and len(errors) == 2
+    cna = df[df["CVE"] == "CVE-2099-0001"].iloc[0]  # hanya skor CNA → dikeluarkan
+    assert pd.isna(cna["CVSS"]) and "Primary" in cna["Catatan"]
+    assert len(results) == len(df) - 3 and len(errors) == 3
     t = ranking_table(results)
-    # CVE sama, server beda → CF beda (inti paper)
-    k01 = t[t.ID == "K01"]["CF akhir"].iloc[0]
-    k02 = t[t.ID == "K02"]["CF akhir"].iloc[0]
-    assert k01 > k02
+    # CVE sama, keterpaparan beda → CF beda (inti paper: K15 Open vs K08 Small)
+    k15 = t[t.ID == "K15"]["CF akhir"].iloc[0]
+    k08 = t[t.ID == "K08"]["CF akhir"].iloc[0]
+    assert k15 > k08
 
 
 def test_epss_tanggal_tertentu_dan_versi():
     df, _ = fill_scores(scenario(), epss_date="2025-06-01")
     assert (df["Tanggal EPSS"].replace("", None).dropna() == "2025-06-01").all()
     assert df["Versi EPSS"].replace("", None).dropna().str.startswith("v4").all()
+    df2, _ = fill_scores(scenario(), epss_date="2026-08-22")
+    assert df2["Versi EPSS"].replace("", None).dropna().str.startswith("v5").all()
 
 
 def test_epss_dua_tanggal():
